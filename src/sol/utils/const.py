@@ -35,7 +35,7 @@ class Constraint(Enum):
     FIX_PATHS = u'fix_path'
     MINDIFF = u'mindiff'
     NODE_BUDGET = u'node_budget'
-
+    ALLOCATE_FLOW = u'allocate_flow'
 
 
 class BinType(Enum):

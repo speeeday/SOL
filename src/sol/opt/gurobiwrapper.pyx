@@ -671,6 +671,9 @@ cdef class OptimizationGurobi:
         :param varname: now to name the objective variable. If None, a default will be provided
         :return: A list of gurobi variables (one per each epoch)
         """
+        logger.debug("Min Link Load: ")
+
+        
         return self._min_load(resource, tcs, varname)
 
     cpdef max_flow(self, tcs=None, varname=None):
@@ -1047,6 +1050,8 @@ cdef class OptimizationGurobi:
         :param kwargs: keyword arguments to be passed to objective generation function
         :return:
         """
+        logger.debug("add Single Objective")
+        
         epoch_objs = None
         if name == Objective.MIN_LINK_LOAD:
             epoch_objs = self.min_link_load(*args, **kwargs)
@@ -1069,8 +1074,8 @@ cdef class OptimizationGurobi:
         """
         for c in app.constraints:
             args, kwargs = c[1], c[2]
-            # if c[0] == Constraint.ALLOCATE_FLOW:
-            #     self.allocate_flow(*args, **kwargs)
+#            if c[0] == Constraint.ALLOCATE_FLOW:
+#                self.allocate_flow(*args, **kwargs)
             if c[0] == Constraint.ROUTE_ALL:
                 self.route_all(*args, **kwargs)
             elif c[0] == Constraint.CAP_LINKS or c[0] == Constraint.CAP_NODES:

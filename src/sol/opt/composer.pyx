@@ -10,7 +10,7 @@ from sol.topology.topologynx cimport Topology
 from sol.path.paths import PPTC
 from sol.path.paths cimport PPTC
 
-from sol.utils.const import EpochComposition, Fairness, NODES, LINKS, ERR_UNKNOWN_MODE, MBOXES
+from sol.utils.const import EpochComposition, Fairness, Objective, NODES, LINKS, ERR_UNKNOWN_MODE, MBOXES
 from sol.utils.exceptions import InvalidConfigException
 from sol.utils.logger import logger
 
@@ -50,6 +50,8 @@ cpdef compose_apps(apps, Topology topo, network_config, epoch_mode=EpochComposit
         rset.update(app.resource_cost.keys())
     # print (rset)
     for r in rset:
+        logger.debug("App Resource Cost List: " + str(r))
+        logger.debug(str([app.resource_cost[r] for app in apps if r in app.resource_cost]))
         modes, cost_vals, cost_funcs = zip(*[app.resource_cost[r] for app in apps if r in app.resource_cost])
         # Make sure all the modes agree for a given resource
         assert len(set(modes)) == 1
@@ -87,10 +89,20 @@ cpdef compose_apps(apps, Topology topo, network_config, epoch_mode=EpochComposit
     # Add objectives
     objs = []
     for app in apps:
-        kwargs = app.obj[2].copy()
+        logger.debug("Currently on app: " + str(app))
+        logger.debug("App Objectives: " + str(app.obj))
+
+        kwargs = app.obj[2].copy()    #THIS COPY CALL KEEPS SEGFAULTING
+        logger.debug("Just copied kwargs")
         kwargs.update(dict(varname=app.name, tcs=app.obj_tc))
+        logger.debug("Just finished update")            
         epoch_objs = opt.add_single_objective(app.obj[0], *app.obj[1], **kwargs)
+        logger.debug("Added Objective")
         objs.append(epoch_objs)
+
+
+    logger.debug("Composing Objectives")
+        
     opt.compose_objectives(array(objs), epoch_mode, fairness, weights)
     return opt
 
