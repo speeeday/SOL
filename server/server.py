@@ -1,6 +1,7 @@
 import argparse
 import logging
 
+import sys
 import networkx as nx
 import flask
 import numpy
@@ -11,12 +12,12 @@ from flask import send_from_directory
 from flask_compress import Compress
 from sol.opt import NetworkConfig, NetworkCaps
 from sol.opt.composer import compose_apps
-from sol.path.generate import generate_paths_ie
+from sol.path.generate import generate_paths_ie, use_mbox_modifier
 from sol.path.paths import PPTC
 from sol.path.predicates import null_predicate, has_mbox_predicate
 from sol.topology.topologynx import Topology
 from sol.topology.traffic import TrafficClass
-from sol.utils.const import EpochComposition, Fairness, Constraint, Objective, NODES, LINKS, ERR_UNKNOWN_MODE, MBOXES
+from sol.utils.const import EpochComposition, Fairness, Constraint, Objective, NODES, LINKS, ERR_UNKNOWN_MODE, MBOXES, HAS_MBOX
 
 from sol.opt.app import App
 
@@ -31,21 +32,42 @@ _gzip = True  # whether to gzip the returned responses
 
 
 # SET THIS TO THE TOPOLOGY WE ARE TESTING
-#_topology = None
-_topology = nx.DiGraph()
-_topology.add_node(0, services='switch',resources={})
-_topology.add_node(1, services='switch',resources={})
-_topology.add_node(2, services='switch',resources={})
-_topology.add_edge(0, 1, source=0, target=1, resources={'bw': 10000})
-_topology.add_edge(1, 0, source=1, target=0, resources={'bw': 10000})
-_topology.add_edge(2, 1, source=2, target=1, resources={'bw': 10000})
-_topology.add_edge(1, 2, source=1, target=2, resources={'bw': 10000})
-_topology = Topology(u'NoName', _topology)
+_topology = None
 
 _predicatedict = {
     'null': null_predicate,
     'null_predicate': null_predicate,
+    'has_mbox' : has_mbox_predicate, 
+    'has_mbox_predicate' : has_mbox_predicate, 
+    'has_middlebox' : has_mbox_predicate, 
+    'has_middlebox_predicate' : has_mbox_predicate 
 }
+
+def json_to_topology(data):
+    _relabels = {}
+    topology = Topology.from_json(data)
+    logging.info('Topology read successfully as:')
+    logging.info(topology.to_json())
+    logging.info('\n')
+    
+    # compute relabels
+    graph = topology.get_graph()
+    while len(_relabels) < topology.num_nodes():
+        for (src,dst) in topology.links():
+            srcname = int(graph[src][dst][u'srcname'])
+            dstname = int(graph[src][dst][u'dstname'])
+            if src not in _relabels and srcname != src:
+                _relabels[src] = srcname
+            if dst not in _relabels and dstname != dst:
+                _relabels[dst] = dstname
+                    
+    topology.set_graph(nx.relabel_nodes(graph, _relabels))
+        
+    logging.info('Relabeled Topology as:')
+    logging.info(topology.to_json())
+    logging.info('\n')
+
+    return topology
 
 
 def assign_to_tc(tcs, paths, name):
@@ -113,30 +135,75 @@ def composeview():
     """
     try:
         data = request.get_json()
+        logger.debug('\nReceived JSON:')
         logger.debug(data)
+        logger.debug('\n')
+
         apps_json = data['apps']
-        # THIS IS PARSING TOPOLOGY INCORRECTLY
+
+        topology = json_to_topology(data['topology'])
+        graph = topology.get_graph()
+
+        for n in range(len(data['topology']['nodes'])):
+            if (u'hasMbox' in data['topology']['nodes'][n]):
+                if (data['topology']['nodes'][n][u'hasMbox'] == u'true'):
+                    topology.set_mbox(data['topology']['nodes'][n]['id'])
+                    del graph.node[n][u'hasMbox']
+                    topology.set_graph(graph)
+        logger.debug('Set the Middleboxes: ')
+        logger.debug(topology.to_json())
+        logger.debug('\n')
         
-        # topology = Topology.from_json(data['topology'])
-        topology = _topology
-        print "Topology from POST Request"
-        print data['topology']
-        print "Parsed topology using json_graph.node_link_graph()"
-        print topology.to_json()
-    except KeyError:  # todo: is this right exception?
+    except KeyError:
         abort(400)
 
-    # TODO: take predicate into account
     apps = []
+    curr_paths = _paths.copy()
+
+    logger.debug('Paths in Topology:')
+    logger.debug(curr_paths)
+    logger.debug('\n')
+    
     for aj in apps_json:
+        
+        aj = AttrDict(aj)   
+        curr_predicate = _predicatedict[aj.predicate]
+
+        logger.debug('Taking the Following Predicate into Account:')
+        logger.debug(aj.predicate)
+        logger.debug('\n')
+
+
+        newline = False
+        for src in curr_paths:
+            src_paths = curr_paths[src]
+            for dst in src_paths:
+                paths = src_paths[dst]
+                for p in paths:
+                    if not curr_predicate(p, topology):
+                        logger.debug('Removing Path Under Predicate: ' + str(p))
+                        curr_paths[src][dst].remove(p)
+                        newline = True
+        if newline:
+            logger.debug('\n')
+                        
+    logger.debug('Updated Paths for Optimization: ')
+    logger.debug(curr_paths)
+    logger.debug('\n')
+    
+    for aj in apps_json:
+        
         aj = AttrDict(aj)
+
+        logger.debug(aj.id + ': ')
+        
         tcs = []
         for tcj in aj.traffic_classes:
             tc = TrafficClass(tcj.tcid, u'tc', tcj.src, tcj.dst,
                               numpy.array([tcj.vol_flows]))
             tcs.append(tc)
-
-        pptc = assign_to_tc(tcs, _paths, aj.id)
+            
+        pptc = assign_to_tc(tcs, curr_paths, aj.id)
         # pptc = generate_paths_tc(topology, tcs, _predicatedict[aj.predicate], 20,
         #                          float('inf'), name=aj.id)
         # objective
@@ -148,11 +215,11 @@ def composeview():
         logger.debug("Objective: " + str(objective))
             
         for r in map(AttrDict, aj.resource_costs):
-            logger.debug("Resource type: " + str(r.resource))
+            logger.debug("Resource Type: " + str(r.resource))
         # [TODO: NEED TO UNDERSTAND THE DIFFERENCE BETWEEN THE MODES (NODES/MBOXES/LINKS)]
         # resource : (mode, cost_value, cost_function)
         resource_cost = {r.resource: (LINKS, r.cost, 0) for r in map(AttrDict, aj.resource_costs)}
-        logger.debug("Printing Constraints: " + str(list(aj.constraints)))
+        logger.debug("Constraints: " + str(list(aj.constraints)))
         wrap_constraints = []
         for con in list(aj.constraints):
             if con == u'route_all':
@@ -196,8 +263,10 @@ def composeview():
             obj_name = None
         wrap_objectives.append([objective[1]]) #*args
         wrap_objectives.append({}) #**kwargs
-                
+
+        logger.debug('\n')
         apps.append(App(pptc, wrap_constraints, resource_cost, wrap_objectives, name=aj.id))
+
     ncaps = NetworkCaps(topology)
     for r in resource_cost.keys():
         ncaps.add_cap(r,None,1)
@@ -225,7 +294,11 @@ def composeview():
             except StopIteration:
                 break
         result.append(result_app)
+
+    logger.debug('\nOBComputed App Composition: ')
     logger.debug(result)
+    logger.debug('\n')
+    
     return jsonify(result)
 
 
@@ -237,8 +310,8 @@ def topology():
     """
 
     #TODO: make sure the mbox nodes are identified for the topology object
-    
-    logger.debug("Setting global variables _topology and _paths")
+
+    logger.debug("\nSetting Global Variables Topology and Paths\n")
     global _topology, _paths
     if request.method == 'GET':
         if _topology is None:
@@ -246,19 +319,25 @@ def topology():
         return jsonify(_topology.to_json())
     elif request.method == 'POST':
         data = request.get_json()
+        logger.debug('Received JSON:')
         logger.debug(data)
-#        _topology = Topology.from_json(data)
-        logging.info('Topology read successfully as:')
-        logging.info(_topology.to_json())
+        logger.debug('\n')
+        _topology = json_to_topology(data)
+#        print _topology.to_json()
         _paths = {}
         for s in _topology.nodes():
             _paths[s] = {}
             for t in _topology.nodes():
-                # this is where the predicate needs to be defined TODO
-                _paths[s][t] = list(generate_paths_ie(s, t, _topology, null_predicate, 100, 5))
+                if s != t:
+                    _paths[s][t] = list(generate_paths_ie(s, t, _topology, null_predicate, 100, 5))
+
+        logging.debug("Computed Paths:")
+        logging.debug(str(_paths))
+        logging.debug('\n')
         return ""
     else:
-        abort(405)  # method not allowed
+        # method not allowed
+        abort(405)
 
 
 @app.route('/apidocs/')

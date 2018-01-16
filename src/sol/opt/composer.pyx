@@ -89,15 +89,10 @@ cpdef compose_apps(apps, Topology topo, network_config, epoch_mode=EpochComposit
     # Add objectives
     objs = []
     for app in apps:
-        logger.debug("Currently on app: " + str(app))
-        logger.debug("App Objectives: " + str(app.obj))
 
         kwargs = app.obj[2].copy()    #THIS COPY CALL KEEPS SEGFAULTING
-        logger.debug("Just copied kwargs")
         kwargs.update(dict(varname=app.name, tcs=app.obj_tc))
-        logger.debug("Just finished update")            
         epoch_objs = opt.add_single_objective(app.obj[0], *app.obj[1], **kwargs)
-        logger.debug("Added Objective")
         objs.append(epoch_objs)
 
 

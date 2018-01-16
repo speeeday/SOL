@@ -6,6 +6,8 @@ from collections import defaultdict
 
 from six import u
 from six.moves import zip
+from sol.utils.logger import logger
+
 
 cpdef unicode tup2str(tuple t):
     """ Convert tuple to string
@@ -34,7 +36,7 @@ def uniq(alist):
 def parse_bool(s):
     """ Parse a string into a boolean. Multiple truth values are supported,
     such as 'true', 'yes', 'y' and even 'ok' """
-    return s.lower() in ['true', '1', 't', 'y', 'yes', 'yeah', 'yup', 'ok']
+    return s.lower() in ['true', '1', 't', 'y', 'yes', 'yeah', 'yup', 'ok', u'true']
 
 def noop(x):
     """ Do nothing and return value that was passed in"""

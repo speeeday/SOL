@@ -138,7 +138,7 @@ cdef class OptimizationGurobi:
                 for epoch in range(self.num_epochs):
                     self._xps[tc.ID, pi, epoch] = self.opt.addVar(lb=0, ub=1, name=xp(tc, pi, epoch))
         self.opt.update()
-        logger.debug("Added desicion variables")
+        logger.debug("Added decision variables")
 
     cdef _add_binary_vars(self, PPTC pptc, vtypes):
         """
