@@ -1,6 +1,7 @@
 import argparse
 import logging
 
+import copy
 import sys
 import networkx as nx
 import flask
@@ -51,16 +52,18 @@ def json_to_topology(data):
     logging.info('\n')
     
     # compute relabels
+    # TODO: find bug in relabels!!! otherwise use simple topology for demo
+    print "starting relbaels:"
     graph = topology.get_graph()
     while len(_relabels) < topology.num_nodes():
         for (src,dst) in topology.links():
             srcname = int(graph[src][dst][u'srcname'])
             dstname = int(graph[src][dst][u'dstname'])
-            if src not in _relabels and srcname != src:
+            if src not in _relabels:
                 _relabels[src] = srcname
-            if dst not in _relabels and dstname != dst:
+            if dst not in _relabels:
                 _relabels[dst] = dstname
-                    
+        print "finished links with size: " + str(len(_relabels))
     topology.set_graph(nx.relabel_nodes(graph, _relabels))
         
     logging.info('Relabeled Topology as:')
@@ -158,7 +161,7 @@ def composeview():
         abort(400)
 
     apps = []
-    curr_paths = _paths.copy()
+    curr_paths = copy.deepcopy(_paths)
 
     logger.debug('Paths in Topology:')
     logger.debug(curr_paths)
@@ -174,18 +177,20 @@ def composeview():
         logger.debug('\n')
 
 
-        newline = False
-        for src in curr_paths:
-            src_paths = curr_paths[src]
+        for src in _paths:
+            logger.debug('Looking at Node ' + str(src))
+            src_paths = _paths[src]
             for dst in src_paths:
+                logger.debug('\tPaths for Node ' + str(dst))
                 paths = src_paths[dst]
                 for p in paths:
+                    logger.debug('\t\tLooking at Path: ' + str(p))
                     if not curr_predicate(p, topology):
-                        logger.debug('Removing Path Under Predicate: ' + str(p))
+                        logger.debug('\t\t\tRemoving Path Under Predicate: ' + str(p))
                         curr_paths[src][dst].remove(p)
-                        newline = True
-        if newline:
-            logger.debug('\n')
+                if (len(curr_paths[src][dst]) == 0):
+                    logger.debug('\n\t\t\tCOULD NOT FIND VALID PATH BETWEEN THE PAIR OF NODES UNDER THE PREDICATE: (' + str(src) + ',' + str(dst) + ')\n')
+        logger.debug('\n')
                         
     logger.debug('Updated Paths for Optimization: ')
     logger.debug(curr_paths)
@@ -295,7 +300,7 @@ def composeview():
                 break
         result.append(result_app)
 
-    logger.debug('\nOBComputed App Composition: ')
+    logger.debug('\nComputed App Composition: ')
     logger.debug(result)
     logger.debug('\n')
     
@@ -329,7 +334,7 @@ def topology():
             _paths[s] = {}
             for t in _topology.nodes():
                 if s != t:
-                    _paths[s][t] = list(generate_paths_ie(s, t, _topology, null_predicate, 100, 5))
+                    _paths[s][t] = list(generate_paths_ie(s, t, _topology, null_predicate, 100, len(list(_topology.nodes()))))
 
         logging.debug("Computed Paths:")
         logging.debug(str(_paths))
