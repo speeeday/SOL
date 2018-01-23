@@ -275,8 +275,18 @@ def composeview():
     ncaps = NetworkCaps(topology)
     for r in resource_cost.keys():
         ncaps.add_cap(r,None,1)
+
+    # Start TIMER HERE
+    start = time.time()
+    
     opt = compose_apps(apps, topology, NetworkConfig(networkcaps=ncaps), epoch_mode=EpochComposition.WORST, fairness=Fairness.WEIGHTED, weights = None)
     opt.solve()
+
+    end = time.time()
+    # END TIMER HERE
+
+    logger.debug('\nTime for Optimization: ' + str(end-start) + ' seconds\n')
+    
     result = []
     for app in apps:
         result_app = {"app": app.name, "tcs": []}
@@ -300,6 +310,8 @@ def composeview():
                 break
         result.append(result_app)
 
+    # MAYBE EXTEND TIMER UNTIL HERE -- is this last part is still a 'computation'?
+        
     logger.debug('\nComputed App Composition: ')
     logger.debug(result)
     logger.debug('\n')
